@@ -327,5 +327,3 @@ For custody, this means:
 - Keys stored where OS cannot reach
 - Signing policy enforced by hardware
 - Clients verify enclave before trusting it
-
-Tomorrow: Deep-dive into attestation — how it works, verification chains, and what it actually proves.

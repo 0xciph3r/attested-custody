@@ -708,4 +708,3 @@ For custody:
 └── Encrypt secrets to enclave pubkey
 ```
 
-Tomorrow: **Day 3 — TEE Threat Model** (side-channels, rollback attacks, what attestation doesn't protect against)

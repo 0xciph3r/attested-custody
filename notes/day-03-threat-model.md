@@ -348,6 +348,60 @@ Let's apply this to our attested-custody design:
 4. **Research:** Find one side-channel attack published after 2022. What was the vulnerability and was SGX affected?
 
 ---
+## Answers
+1. **Analyze:** An attacker with root can fully control the operating system, schedule or terminate enclave execution, manipulate networking, deny service, and observe many side channels, but they cannot directly read or modify enclave memory if the SGX hardware guarantees hold. They can attempt rollback, replay, I/O tampering, or exploit implementation flaws and microarchitectural vulnerabilities, so SGX alone does not guarantee complete system security. The custody system must therefore combine SGX with authenticated storage, remote attestation, anti-rollback mechanisms, audited protocols, and defenses against known side-channel attacks.
+
+2. **Design:** The enclave should never rely solely on local storage for its source of truth. When updating a critical policy (like velocity limits), the enclave must require a cryptographic receipt or signed timestamp from an external cluster of peer enclaves or a high-availability database. Upon reboot, it queries the cluster for the latest state hash before accepting local data. Some TEE architectures offer non-volatile monotonic counters baked into the hardware platform. The enclave can increment this counter every time it seals data and include the counter's value in the sealed payload. When unsealing, the enclave verifies that the payload's counter matches the hardware's current counter, rejecting older versions
+
+3. **Evaluate:**
+My next questions would be:
+
+**Threat model**
+- What threats are you defending against?
+- Are you assuming a malicious OS?
+- Are you assuming a malicious hypervisor?
+- Do you assume physical access?
+- Do you defend against privileged insiders?
+**Side channels**
+- Which cache side-channel attacks have you mitigated?
+- How do you handle page-fault attacks?
+- Have you considered speculative execution attacks?
+- Is your code constant-time?
+**Persistence**
+- How do you prevent rollback attacks?
+- How are secrets sealed?
+- How do you guarantee freshness after reboot?
+**Attestation**
+- How is remote attestation performed?
+- How are measurements verified?
+- How do clients pin enclave identities?
+- How do you rotate enclave versions safely?
+**Key management**
+- Are private keys generated inside the enclave?
+- Can keys ever leave plaintext memory?
+- What happens during backup and recovery?
+**Operational security**
+- What happens if Intel revokes the platform?
+- How are microcode updates handled?
+- What happens if SGX must be disabled?
+- Can the system continue operating safely?
+**Availability**
+- Can a root attacker prevent signatures?
+- How do you recover from denial-of-service?
+- What is the recovery process after enclave failure?
+
+The phrase "100% secure" is itself a red flag. Every security system has assumptions, and understanding those assumptions is more important than the technology choice.
+
+4. Research: Post-2022 Side-Channel Attack
+
+The Attack: Downfall (CVE-2022-40982), publicly disclosed in August 2023 (after a year-long embargo).
+
+The Vulnerability: Downfall is a transient execution (speculative execution) side-channel attack. It exploited a microarchitectural flaw in the Gather instructions of Intel's Advanced Vector Extensions (AVX). The CPU's memory optimization features unintentionally revealed internal hardware registers to software during speculative execution. An attacker could trick the CPU into speculatively reading out-of-bounds memory, leaking sensitive data left behind in the vector registers by other processes or threads.
+
+Was SGX Affected? Yes. Downfall completely bypassed Intel SGX's hardware isolation. An attacker controlling the host OS could use Downfall to extract plaintext cryptographic keys and passwords directly from an actively running SGX enclave. Intel had to issue microcode updates to patch the vulnerability and force a "TCB Recovery," which revoked the attestation validity of unpatched CPUs.
+
+
+---
 
 ## Resources
 
@@ -388,5 +442,3 @@ FOR CUSTODY:
 ├── Code bugs → Rust, small TCB, audit
 └── Supply chain → Multi-vendor, physical security
 ```
-
-Tomorrow: **Day 4 — Prior Art Survey** (What others have built: Fortanix, Anjuna, Oasis, Teechain, and academic work)
