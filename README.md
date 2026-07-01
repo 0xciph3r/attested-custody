@@ -36,15 +36,6 @@ This design composes four controls:
   - structured audit events
 - STRIDE threat model completed (`threat-model/`)
 
-## Secure Engineer Roadmap (Project Track)
-
-| Phase | Focus | Status |
-|---|---|---|
-| Day 1-3 | TEE fundamentals, attestation, threat model foundations | Done |
-| Day 4-7 | Prior art, architecture, whitepaper, publication packaging | Done |
-| Day 8-9 | Reference implementation + production hardening phase 1 | Done |
-| Day 10+ | Production hardening phase 2 (real parsers, crypto integration, deploy controls) | Next |
-
 ## Repository Structure
 
 ```text
