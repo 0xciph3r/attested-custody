@@ -422,4 +422,3 @@ Day 5 Architecture Core:
 └── Threshold redundancy preserves safety under failures
 ```
 
-If you can explain this architecture clearly, you are now thinking like a custody security engineer, not just an implementer.

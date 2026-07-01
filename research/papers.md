@@ -58,5 +58,3 @@ Papers to read during the learning phase.
   - Intel's newer attestation model without Intel servers
 
 ## Notes
-
-Add summaries here as papers are read.

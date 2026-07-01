@@ -179,4 +179,3 @@ Day 4 is about extracting proven patterns:
 
 Secure custody emerges when all three are combined with explicit rollback and operational controls.
 
-Tomorrow: **Day 5 — Architecture Design** (turn these lessons into your concrete system design).

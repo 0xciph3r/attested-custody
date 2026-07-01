@@ -13,10 +13,12 @@ package session
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -44,6 +46,10 @@ type Manager struct {
 
 	// requestIndex prevents duplicate requests (idempotency)
 	requestIndex map[string]types.SessionID
+
+	// sessionsByPayload tracks in-flight sessions by (payloadHash, signerSet)
+	// to prevent duplicate concurrent sessions for the same payload and signer set
+	sessionsByPayload map[string]types.SessionID
 
 	// dependencies
 	verifier     *attestation.Verifier
@@ -81,13 +87,14 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	}
 
 	return &Manager{
-		sessions:     make(map[types.SessionID]*types.Session),
-		requestIndex: make(map[string]types.SessionID),
-		verifier:     cfg.Verifier,
-		nonceManager: cfg.NonceManager,
-		policyState:  cfg.PolicyState,
-		config:       cfg.Config,
-		clock:        time.Now,
+		sessions:          make(map[types.SessionID]*types.Session),
+		requestIndex:      make(map[string]types.SessionID),
+		sessionsByPayload: make(map[string]types.SessionID),
+		verifier:          cfg.Verifier,
+		nonceManager:      cfg.NonceManager,
+		policyState:       cfg.PolicyState,
+		config:            cfg.Config,
+		clock:             time.Now,
 	}, nil
 }
 
@@ -115,6 +122,16 @@ func (m *Manager) CreateSession(req types.SigningRequest) (*types.Session, error
 			ErrInsufficientSigners, len(participants), threshold)
 	}
 
+	// Collision detection: check if we already have an in-flight session for this payload + signer set
+	payloadKey := m.computePayloadKey(req.PayloadHash, participants)
+	if existingID, ok := m.sessionsByPayload[payloadKey]; ok {
+		if existingSession, ok := m.sessions[existingID]; ok && existingSession.Status != types.SessionExpired && existingSession.Status != types.SessionFailed {
+			// Reuse in-flight session
+			m.requestIndex[req.RequestID] = existingID
+			return existingSession, nil
+		}
+	}
+
 	// Generate session ID
 	sessionID, err := m.generateSessionID()
 	if err != nil {
@@ -135,6 +152,7 @@ func (m *Manager) CreateSession(req types.SigningRequest) (*types.Session, error
 
 	m.sessions[sessionID] = session
 	m.requestIndex[req.RequestID] = sessionID
+	m.sessionsByPayload[payloadKey] = sessionID
 
 	return session, nil
 }
@@ -177,6 +195,24 @@ func (m *Manager) generateSessionID() (types.SessionID, error) {
 		return "", err
 	}
 	return types.SessionID(hex.EncodeToString(b)), nil
+}
+
+// computePayloadKey creates a deterministic key for (payloadHash, signerSet) collision detection.
+func (m *Manager) computePayloadKey(payloadHash [32]byte, participants []types.SessionParticipant) string {
+	// Extract and sort signer IDs for deterministic ordering
+	signerIDs := make([]string, 0, len(participants))
+	for _, p := range participants {
+		signerIDs = append(signerIDs, p.SignerID)
+	}
+	sort.Strings(signerIDs)
+
+	// Hash payload hash + sorted signer IDs
+	h := sha256.New()
+	h.Write(payloadHash[:])
+	for _, id := range signerIDs {
+		h.Write([]byte(id))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // GetSession retrieves a session by ID.
@@ -377,12 +413,25 @@ func (m *Manager) CleanupExpired() int {
 
 	now := m.clock()
 	removed := 0
+	keysToRemove := make([]string, 0)
 
 	for id, session := range m.sessions {
 		if now.After(session.ExpiresAt) {
 			delete(m.sessions, id)
 			removed++
+
+			// Also remove from payload index
+			for key, sessionID := range m.sessionsByPayload {
+				if sessionID == id {
+					keysToRemove = append(keysToRemove, key)
+					break
+				}
+			}
 		}
+	}
+
+	for _, key := range keysToRemove {
+		delete(m.sessionsByPayload, key)
 	}
 
 	return removed

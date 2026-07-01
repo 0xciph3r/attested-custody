@@ -18,3 +18,4 @@ Thumbs.db
 
 # PDFs (generated)
 whitepaper/*.pdf
+articles/**

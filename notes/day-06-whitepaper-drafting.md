@@ -224,4 +224,3 @@ A complete technical draft where:
 └── limits are honestly documented
 ```
 
-Tomorrow (Day 7): finalization, publication packaging, and repo-level polish for public credibility.

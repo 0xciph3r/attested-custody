@@ -1,64 +1,82 @@
 # Attested Custody
 
-FROST threshold signing with TEE-backed key protection and hard-gated remote attestation.
+Attested Custody is a security engineering project for institutional digital-asset custody: threshold signing coordinated by an untrusted service, with signer participation gated by hardware-backed attestation.
 
-## What this project is
+The goal is simple: make unauthorized signing extremely hard even when parts of the host infrastructure are compromised.
 
-`attested-custody` is a security research + engineering project exploring how to build custody systems where:
+## Problem Statement
 
-1. key shares are generated/used inside trusted execution environments,
-2. the coordinator remains untrusted orchestration,
-3. signing is allowed only after strict attestation verification,
-4. policy state is protected against rollback via monotonic external validation.
+Institutional custody has to balance two hard requirements:
 
-The objective is a publication-grade whitepaper and a practical reference implementation.
+1. **Operational speed** for legitimate treasury movement.
+2. **Strong compromise resistance** against insider abuse, host compromise, and rollback attacks.
 
-## Current status
+Most approaches optimize only one side. This project focuses on combining them.
 
-- Whitepaper drafted and packaged for submission workflow
-- Day 1-7 curriculum completed in `notes/`
-- Reference implementation phase (Day 8+) is next
+## Project Approach
 
-## Repository structure
+This design composes four controls:
+
+1. **Threshold signing (t-of-n)** so no single signer can authorize alone.
+2. **TEE-backed signer runtime** so key-share operations remain in trusted execution.
+3. **Hard-gated remote attestation** so only approved measured code can participate.
+4. **Monotonic policy-state validation** so state rollback and downgrade attempts are rejected.
+
+## Current Status
+
+- Curriculum and architecture notes completed (`notes/`)
+- Whitepaper drafted and packaged (`whitepaper/`)
+- Reference implementation core completed (`reference-impl/`)
+- Production hardening phase 1 completed:
+  - durable state stores (file + SQLite)
+  - startup recovery flow
+  - gRPC API surface
+  - structured audit events
+- STRIDE threat model completed (`threat-model/`)
+
+## Secure Engineer Roadmap (Project Track)
+
+| Phase | Focus | Status |
+|---|---|---|
+| Day 1-3 | TEE fundamentals, attestation, threat model foundations | Done |
+| Day 4-7 | Prior art, architecture, whitepaper, publication packaging | Done |
+| Day 8-9 | Reference implementation + production hardening phase 1 | Done |
+| Day 10+ | Production hardening phase 2 (real parsers, crypto integration, deploy controls) | Next |
+
+## Repository Structure
 
 ```text
-notes/           Day-by-day technical curriculum and design decisions
-whitepaper/      Preprint draft, outline, and PDF build tooling
-research/        Papers and prior-art research references
-reference-impl/  Upcoming implementation work (Go + enclave integration path)
+notes/           Day-by-day learning and design artifacts
+research/        Prior-art and paper references
+whitepaper/      Preprint source and build tooling
+reference-impl/  Go reference implementation
+threat-model/    STRIDE model and mitigation roadmap
 ```
 
-## Learning roadmap
+## Security Model at a Glance
 
-| Day | Topic | Status |
-|---|---|---|
-| 1 | TEE Fundamentals | Done |
-| 2 | Attestation Deep-dive | Done |
-| 3 | TEE Threat Model | Done |
-| 4 | Prior Art Survey | Done |
-| 5 | Architecture Design | Done |
-| 6 | Whitepaper Drafting | Done |
-| 7 | Publication Packaging | Done |
-| 8+ | Reference Implementation | Next |
+- **Coordinator is untrusted by default**
+- **Key shares never leave signer enclaves**
+- **Attestation verdict is a hard gate**
+- **Replay is blocked through freshness checks**
+- **Policy rollback is blocked via monotonic validation**
 
-## Core design principles
+## Reference Implementation (Go)
 
-1. **Conservative trust model**  
-   Host OS, hypervisor, and coordinator are untrusted by default.
+See `reference-impl/README.md` for package-level details.
 
-2. **Attestation is a hard gate**  
-   Sensitive operations require valid chain/signature/measurement/freshness checks.
+Quick start:
 
-3. **No plaintext key-share handling outside enclaves**  
-   Signing and share handling remain in trusted execution boundary.
+```bash
+cd reference-impl
+go mod tidy
+go build ./...
+go test ./...
+```
 
-4. **Rollback resistance is mandatory**  
-   Enclave sealing alone is insufficient; monotonic state validation is required.
-
-## Whitepaper artifacts
+## Whitepaper Artifacts
 
 - Draft: `whitepaper/attested-custody-preprint.md`
-- PDF: `whitepaper/attested-custody-preprint.pdf` (generated, ignored by git)
 - Build script: `whitepaper/build_pdf.py`
 - Outline: `whitepaper/outline.md`
 
@@ -69,23 +87,13 @@ python3 -m pip install reportlab
 python3 whitepaper/build_pdf.py
 ```
 
-## Key notes to read
+## Recommended Reading Order
 
-- `notes/day-03-threat-model.md` (security boundary and threat mapping)
-- `notes/day-04-prior-art-survey.md` (comparative prior-art analysis)
-- `notes/day-05-architecture-design.md` (target system architecture)
-- `notes/day-06-whitepaper-drafting.md` (how to draft technical sections)
-- `notes/day-07-publication-packaging.md` (final publication packaging)
-
-## Why this work matters
-
-Most custody designs optimize one axis:
-
-1. single-HSM trust (strong hardware, concentrated risk),
-2. threshold-only software signing (distributed trust, runtime exposure),
-3. TEE-only single-key models (runtime isolation, key concentration).
-
-Attested Custody combines threshold safety + attested trusted execution + rollback-aware policy controls.
+1. `notes/day-03-threat-model.md`
+2. `notes/day-05-architecture-design.md`
+3. `whitepaper/attested-custody-preprint.md`
+4. `reference-impl/README.md`
+5. `threat-model/STRIDE.md`
 
 ## Author
 

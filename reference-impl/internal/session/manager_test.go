@@ -257,3 +257,226 @@ func TestManager_CleanupExpired(t *testing.T) {
 		t.Errorf("expected 5 removed, got %d", removed)
 	}
 }
+
+func TestManager_SessionDeduplication_SamePayloadSameSigner(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Two requests with the same payload and same (implicit) signers
+	req1 := types.SigningRequest{
+		RequestID:   "req-001",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	req2 := types.SigningRequest{
+		RequestID:   "req-002", // Different request ID
+		PayloadHash: [32]byte{1, 2, 3}, // Same payload
+	}
+
+	session1, _ := manager.CreateSession(req1)
+	session2, _ := manager.CreateSession(req2)
+
+	// Should get the same session ID due to payload + signer deduplication
+	if session1.ID != session2.ID {
+		t.Errorf("expected same session ID for identical payload + signer set, got %s and %s", session1.ID, session2.ID)
+	}
+}
+
+func TestManager_SessionDeduplication_SamePayloadDifferentSigners(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Two requests with same payload but different signers
+	req1 := types.SigningRequest{
+		RequestID:       "req-001",
+		PayloadHash:     [32]byte{1, 2, 3},
+		RequiredSigners: []string{"signer-1", "signer-2"},
+	}
+	req2 := types.SigningRequest{
+		RequestID:       "req-002",
+		PayloadHash:     [32]byte{1, 2, 3}, // Same payload
+		RequiredSigners: []string{"signer-1", "signer-3"}, // Different signers
+	}
+
+	session1, _ := manager.CreateSession(req1)
+	session2, _ := manager.CreateSession(req2)
+
+	// Should get different sessions because signer sets differ
+	if session1.ID == session2.ID {
+		t.Error("expected different session IDs for different signer sets")
+	}
+}
+
+func TestManager_SessionDeduplication_DifferentPayloadSameSigner(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Two requests with different payloads but same signers
+	req1 := types.SigningRequest{
+		RequestID:   "req-001",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	req2 := types.SigningRequest{
+		RequestID:   "req-002",
+		PayloadHash: [32]byte{4, 5, 6}, // Different payload
+	}
+
+	session1, _ := manager.CreateSession(req1)
+	session2, _ := manager.CreateSession(req2)
+
+	// Should get different sessions because payloads differ
+	if session1.ID == session2.ID {
+		t.Error("expected different session IDs for different payloads")
+	}
+}
+
+func TestManager_SessionDeduplication_SignerOrderIrrelevant(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Two requests with same payload and signers but in different order
+	req1 := types.SigningRequest{
+		RequestID:       "req-001",
+		PayloadHash:     [32]byte{1, 2, 3},
+		RequiredSigners: []string{"signer-1", "signer-2"},
+	}
+	req2 := types.SigningRequest{
+		RequestID:       "req-002",
+		PayloadHash:     [32]byte{1, 2, 3},
+		RequiredSigners: []string{"signer-2", "signer-1"}, // Reversed order
+	}
+
+	session1, _ := manager.CreateSession(req1)
+	session2, _ := manager.CreateSession(req2)
+
+	// Should get the same session because the signer set is identical (order-independent)
+	if session1.ID != session2.ID {
+		t.Errorf("expected same session ID when signer order differs, got %s and %s", session1.ID, session2.ID)
+	}
+}
+
+func TestManager_SessionDeduplication_CleanupPayloadIndex(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Create a session
+	req := types.SigningRequest{
+		RequestID:   "req-001",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	session1, _ := manager.CreateSession(req)
+
+	// Verify payload index is populated
+	manager.mu.RLock()
+	indexSize := len(manager.sessionsByPayload)
+	manager.mu.RUnlock()
+	if indexSize != 1 {
+		t.Errorf("expected 1 entry in payload index, got %d", indexSize)
+	}
+
+	// Fast-forward past expiry
+	manager.WithClock(func() time.Time {
+		return time.Now().Add(15 * time.Minute)
+	})
+
+	// Cleanup should remove both session and payload index entry
+	removed := manager.CleanupExpired()
+	if removed != 1 {
+		t.Errorf("expected 1 session removed, got %d", removed)
+	}
+
+	// Verify payload index is cleaned up
+	manager.mu.RLock()
+	indexSize = len(manager.sessionsByPayload)
+	manager.mu.RUnlock()
+	if indexSize != 0 {
+		t.Errorf("expected 0 entries in payload index after cleanup, got %d", indexSize)
+	}
+
+	// Verify session is gone
+	_, err := manager.GetSession(session1.ID)
+	if err == nil {
+		t.Error("expected session to be removed")
+	}
+}
+
+func TestManager_SessionDeduplication_ReusesInFlightSession(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Create first session
+	req1 := types.SigningRequest{
+		RequestID:   "req-001",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	session1, _ := manager.CreateSession(req1)
+
+	// Transition to different status (simulate progress)
+	session1.Status = types.SessionCommit
+
+	// Create second request for same payload/signer
+	req2 := types.SigningRequest{
+		RequestID:   "req-002",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	session2, _ := manager.CreateSession(req2)
+
+	// Should return the in-flight session (not expired, not failed)
+	if session2.ID != session1.ID {
+		t.Errorf("expected to reuse in-flight session, got different IDs")
+	}
+	if session2.Status != types.SessionCommit {
+		t.Errorf("expected reused session to have original status, got %s", session2.Status)
+	}
+}
+
+func TestManager_SessionDeduplication_ExpiredSessionNotReused(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Create first session
+	req1 := types.SigningRequest{
+		RequestID:   "req-001",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	session1, _ := manager.CreateSession(req1)
+	sessionID1 := session1.ID
+
+	// Mark session as expired
+	manager.mu.Lock()
+	manager.sessions[session1.ID].Status = types.SessionExpired
+	manager.mu.Unlock()
+
+	// Create second request for same payload/signer
+	req2 := types.SigningRequest{
+		RequestID:   "req-002",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	session2, _ := manager.CreateSession(req2)
+
+	// Should create a new session instead of reusing expired one
+	if session2.ID == sessionID1 {
+		t.Error("expected new session to be created when previous one is expired")
+	}
+}
+
+func TestManager_SessionDeduplication_FailedSessionNotReused(t *testing.T) {
+	manager, _, _ := setupTestEnvironment(t)
+
+	// Create first session
+	req1 := types.SigningRequest{
+		RequestID:   "req-001",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	session1, _ := manager.CreateSession(req1)
+	sessionID1 := session1.ID
+
+	// Mark session as failed
+	manager.mu.Lock()
+	manager.sessions[session1.ID].Status = types.SessionFailed
+	manager.mu.Unlock()
+
+	// Create second request for same payload/signer
+	req2 := types.SigningRequest{
+		RequestID:   "req-002",
+		PayloadHash: [32]byte{1, 2, 3},
+	}
+	session2, _ := manager.CreateSession(req2)
+
+	// Should create a new session instead of reusing failed one
+	if session2.ID == sessionID1 {
+		t.Error("expected new session to be created when previous one failed")
+	}
+}
