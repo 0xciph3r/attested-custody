@@ -1,5 +1,7 @@
 # Attested Custody
 
+[![CI](https://github.com/0xciph3r/attested-custody/actions/workflows/ci.yml/badge.svg)](https://github.com/0xciph3r/attested-custody/actions/workflows/ci.yml)
+
 Attested Custody is a security engineering project for institutional digital-asset custody: threshold signing coordinated by an untrusted service, with signer participation gated by hardware-backed attestation.
 
 The goal is simple: make unauthorized signing extremely hard even when parts of the host infrastructure are compromised.
